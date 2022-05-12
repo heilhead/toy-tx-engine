@@ -12,6 +12,7 @@ pub enum TransactionStoreError {
     AmountNotAvailable,
 }
 
+/// Transaction type deserialized from the input stream.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum TransactionType {
@@ -23,8 +24,6 @@ pub enum TransactionType {
 }
 
 /// Raw transaction data coming from input stream.
-///
-/// NOTE: Needs validation before executing.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct RawTransactionData {
     #[serde(rename = "tx")]
@@ -89,11 +88,13 @@ impl TryFrom<&RawTransactionData> for TransactionData {
     }
 }
 
+/// Transaction database.
+///
+/// NOTE: Assumes that transaction IDs are globally unique.
 pub struct TransactionStore {
     data: HashMap<u32, TransactionData>,
 }
 
-#[allow(dead_code)]
 impl TransactionStore {
     pub fn new() -> Self {
         Self {

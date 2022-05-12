@@ -1,4 +1,4 @@
-use crate::account::{AccountData, AccountStore, BalanceOperation};
+use crate::account::{AccountData, AccountStore, BalanceOperation, BalanceOperationError};
 use crate::input::InputStreamError;
 use crate::transaction::{
     RawTransactionData, StoredTransactionType, TransactionStatus, TransactionStore,
@@ -31,6 +31,9 @@ pub enum EngineError {
     #[error(transparent)]
     TransactionStoreError(#[from] TransactionStoreError),
 
+    #[error(transparent)]
+    BalanceOperationError(#[from] BalanceOperationError),
+
     #[error("Internal error")]
     InternalError,
 }
@@ -55,6 +58,11 @@ pub enum ValidationError {
 
 pub type EngineResult<T> = Result<T, EngineError>;
 
+/// Payment transaction engine.
+///
+/// Current implementation holds both the accounts and transactions databases.
+/// Implements an interface to process transactions providing detailed error information in case
+/// transaction processing fails.
 pub struct Engine {
     accounts: AccountStore,
     transactions: TransactionStore,
@@ -68,6 +76,8 @@ impl Engine {
         }
     }
 
+    /// Processes the raw transaction data as received from the data input streams. Provides
+    /// detailed errors in case the transaction is invalid.
     pub fn process_transaction(&mut self, data: &RawTransactionData) -> EngineResult<()> {
         // Perform general data validation for both the incoming transaction data and
         // the database state.
@@ -86,13 +96,16 @@ impl Engine {
         }
     }
 
+    /// Returns an iterator over all of client accounts.
+    ///
+    /// NOTE: The iterator is unordered.
     pub fn accounts(&self) -> impl Iterator<Item = &AccountData> {
         self.accounts.iter()
     }
 
     fn process_balance_operation(&mut self, data: &RawTransactionData) -> EngineResult<()> {
-        // Safe guarantees at this point:
-        //  - account either does not exist (create below) OR does exist and is upstanding;
+        // Safety guarantees at this point:
+        //  - account either does not exist (created below) OR does exist and is upstanding;
         //  - transaction has a valid positive amount;
         //  - transaction ID is unique and can be inserted into the database;
 
@@ -105,7 +118,10 @@ impl Engine {
         };
 
         // For simplicity, this call initializes an account if one does not already exist.
-        self.accounts.get_mut(data.account_id).update_balance(op);
+        self.accounts
+            .get_mut(data.account_id)
+            .balance_mut()
+            .update(op)?;
 
         self.transactions.insert(data.try_into()?);
 
@@ -113,20 +129,16 @@ impl Engine {
     }
 
     fn process_dispute(&mut self, data: &RawTransactionData) -> EngineResult<()> {
-        // Safe guarantees at this point:
+        // Safety guarantees at this point:
         //  - account exists and is upstanding;
         //  - transaction ID is valid and transaction data exists in the database;
+        //  - account ID matches original transaction's account ID;
 
         let tx = self
             .transactions
             .get_mut(data.id)
             .ok_or(EngineError::InternalError)?;
 
-        // This bit wasn't clear in the task description: should we allow only deposit transactions
-        // to be reversed, or both deposit and withdrawal? As someone who's never done this before,
-        // my assumption here is that we allow only deposits to be reversed, and withdrawal reversal
-        // is done through a separate deposit transaction. I may be wrong here though :(
-        // TODO: Cover this concern in the readme.
         if tx.ty != StoredTransactionType::Deposit {
             return Err(EngineError::InvalidTransactionType {
                 required: StoredTransactionType::Deposit,
@@ -141,19 +153,21 @@ impl Engine {
             });
         }
 
-        tx.status = TransactionStatus::UnderDispute;
-
         self.accounts
             .get_mut(data.account_id)
-            .update_balance(BalanceOperation::Hold(tx.amount));
+            .balance_mut()
+            .update(BalanceOperation::Hold(tx.amount))?;
+
+        tx.status = TransactionStatus::UnderDispute;
 
         Ok(())
     }
 
     fn process_resolution(&mut self, data: &RawTransactionData) -> EngineResult<()> {
-        // Safe guarantees at this point:
+        // Safety guarantees at this point:
         //  - account exists and is upstanding;
         //  - transaction ID is valid and transaction data exists in the database;
+        //  - account ID matches original transaction's account ID;
 
         let tx = self
             .transactions
@@ -167,19 +181,21 @@ impl Engine {
             });
         }
 
-        tx.status = TransactionStatus::Ok;
-
         self.accounts
             .get_mut(data.account_id)
-            .update_balance(BalanceOperation::Release(tx.amount));
+            .balance_mut()
+            .update(BalanceOperation::Release(tx.amount))?;
+
+        tx.status = TransactionStatus::Ok;
 
         Ok(())
     }
 
     fn process_chargeback(&mut self, data: &RawTransactionData) -> EngineResult<()> {
-        // Safe guarantees at this point:
+        // Safety guarantees at this point:
         //  - account exists and is upstanding;
         //  - transaction ID is valid and transaction data exists in the database;
+        //  - account ID matches original transaction's account ID;
 
         let tx = self
             .transactions
@@ -193,11 +209,15 @@ impl Engine {
             });
         }
 
-        tx.status = TransactionStatus::Cancelled;
-
         let account = self.accounts.get_mut(data.account_id);
-        account.update_balance(BalanceOperation::WithdrawHeld(tx.amount));
+
+        account
+            .balance_mut()
+            .update(BalanceOperation::WithdrawHeld(tx.amount))?;
+
         account.set_locked(true);
+
+        tx.status = TransactionStatus::Cancelled;
 
         Ok(())
     }
@@ -236,6 +256,14 @@ impl Engine {
                     return Err(ValidationError::InvalidAccountId);
                 }
 
+                if let Some(tx) = self.transactions.get(data.id) {
+                    if tx.account_id != data.account_id {
+                        return Err(ValidationError::InvalidAccountId);
+                    }
+                } else {
+                    return Err(ValidationError::InvalidTransactionId);
+                }
+
                 if !self.transactions.exists(data.id) {
                     return Err(ValidationError::InvalidTransactionId);
                 }
@@ -254,10 +282,10 @@ impl Engine {
 #[cfg(test)]
 mod test {
     use super::Engine;
-    use crate::account::AccountBalance;
+    use crate::account::{AccountBalance, BalanceOperationError};
     use crate::engine::{EngineError, ValidationError};
+    use crate::input::InputStream;
     use crate::transaction::RawTransactionData;
-    use crate::InputStream;
     use rust_decimal_macros::dec;
 
     fn create_input(csv_data: &'static str) -> Vec<RawTransactionData> {
@@ -322,7 +350,15 @@ mod test {
             deposit, 2, 5, 10.0
             dispute, 2, 5
             chargeback, 2, 5
-            deposit, 2, 6, 10.0",
+            deposit, 2, 6, 10.0
+            deposit, 3, 6, 1.0
+            deposit, 1, 7, 1.0
+            dispute, 1, 7
+            chargeback, 3, 7
+            withdrawal, 1, 8, 100.0
+            deposit, 1, 9, 5.0
+            withdrawal, 1, 10, 20.0
+            dispute, 1, 9",
         );
 
         let mut input = input.iter();
@@ -372,6 +408,34 @@ mod test {
             next(),
             Err(EngineError::InvalidTransactionData(
                 ValidationError::AccountLocked
+            ))
+        ));
+
+        next()?;
+        next()?;
+        next()?;
+
+        assert!(matches!(
+            next(),
+            Err(EngineError::InvalidTransactionData(
+                ValidationError::InvalidAccountId
+            ))
+        ));
+
+        assert!(matches!(
+            next(),
+            Err(EngineError::BalanceOperationError(
+                BalanceOperationError::InsufficientAvailableFunds { .. }
+            ))
+        ));
+
+        next()?;
+        next()?;
+
+        assert!(matches!(
+            next(),
+            Err(EngineError::BalanceOperationError(
+                BalanceOperationError::InsufficientAvailableFunds { .. }
             ))
         ));
 

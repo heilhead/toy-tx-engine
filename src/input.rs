@@ -14,9 +14,12 @@ pub enum InputStreamError {
 }
 
 /// A wrapper around `csv::Reader` to lose type parameters.
+///
+/// Implements iterator for reading records directly from the data stream.
 pub struct InputStream {
-    /// Boxed to potentially handle reading from other `std::io::Read` streams, e.g. `std::net::TcpStream`.
-    csv_reader: Box<dyn Iterator<Item = csv::Result<RawTransactionData>>>,
+    /// Boxed to potentially handle reading from other `std::io::Read` streams,
+    /// e.g. `std::net::TcpStream`.
+    reader: Box<dyn Iterator<Item = csv::Result<RawTransactionData>>>,
 }
 
 impl InputStream {
@@ -31,7 +34,7 @@ impl InputStream {
             .from_reader(reader);
 
         Ok(Self {
-            csv_reader: Box::new(reader.into_deserialize()),
+            reader: Box::new(reader.into_deserialize()),
         })
     }
 }
@@ -41,7 +44,7 @@ impl Iterator for InputStream {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.csv_reader
+        self.reader
             .next()
             .map(|res| res.map_err(InputStreamError::from))
     }

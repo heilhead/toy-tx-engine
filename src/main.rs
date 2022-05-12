@@ -17,6 +17,7 @@ fn process_transactions(engine: &mut Engine, input: InputStream) {
         // In the interests of time, we just print the errors to `stderr` without any fancy logging.
         match data {
             Ok(data) => {
+                eprintln!("Processing: Transaction={data:?}");
                 if let Err(err) = engine.process_transaction(&data) {
                     eprintln!("Error processing transaction: Transaction={data:?} Error={err}");
                 }
