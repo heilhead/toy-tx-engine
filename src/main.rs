@@ -14,12 +14,15 @@ use serde::Serialize;
 /// and all errors are printed to `stderr`.
 fn process_transactions(engine: &mut Engine, input: InputStream) {
     for data in input {
-        // In the interests of time, we just print the errors to `stderr` without any fancy logging.
         match data {
             Ok(data) => {
-                eprintln!("Processing: Transaction={data:?}");
+                // In the interests of time, we just print the errors to `stderr` without any fancy
+                // logging.
+                eprint!("Processing: Transaction={data:?}... ");
                 if let Err(err) = engine.process_transaction(&data) {
-                    eprintln!("Error processing transaction: Transaction={data:?} Error={err}");
+                    eprintln!("Error: {err}");
+                } else {
+                    eprintln!("Success!");
                 }
             }
 
