@@ -1,5 +1,4 @@
 use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 use std::collections::HashMap;
 use thiserror::Error as ThisError;
 
@@ -38,16 +37,17 @@ pub struct AccountBalance {
     total: Decimal,
 }
 
+#[allow(dead_code)]
 impl AccountBalance {
-    #[allow(dead_code)]
-    pub fn with_amount(total: Decimal, held: Decimal) -> Self {
-        let mut balance = Self {
-            available: dec!(0.0),
-            total,
-            held,
-        };
-        balance.update_internal();
-        balance
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn with_amount(total: Decimal, held: Decimal) -> Result<Self, BalanceOperationError> {
+        let mut balance = Self::new();
+        balance.update(BalanceOperation::Deposit(total))?;
+        balance.update(BalanceOperation::Hold(held))?;
+        Ok(balance)
     }
 
     /// Executes a balance operation atomically.
@@ -79,14 +79,9 @@ impl AccountBalance {
             }
         }
 
-        self.update_internal();
+        self.available = self.total - self.held;
 
         Ok(())
-    }
-
-    #[inline]
-    fn update_internal(&mut self) {
-        self.available = self.total - self.held;
     }
 
     #[inline]
@@ -288,7 +283,7 @@ mod test {
 
     #[test]
     fn balance_op_errors() -> anyhow::Result<()> {
-        let mut balance = AccountBalance::with_amount(dec!(10.0), dec!(5.0));
+        let mut balance = AccountBalance::with_amount(dec!(10.0), dec!(5.0))?;
 
         assert!(matches!(
             balance.update(BalanceOperation::WithdrawAvailable(dec!(15.0))),

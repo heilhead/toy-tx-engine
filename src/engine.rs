@@ -308,14 +308,14 @@ mod test {
         );
 
         let test_balance = vec![
-            AccountBalance::with_amount(dec!(15.0), dec!(0.0)),
-            AccountBalance::with_amount(dec!(10.0), dec!(0.0)),
-            AccountBalance::with_amount(dec!(15.0), dec!(0.0)),
-            AccountBalance::with_amount(dec!(15.0), dec!(5.0)),
-            AccountBalance::with_amount(dec!(15.0), dec!(0.0)),
-            AccountBalance::with_amount(dec!(20.0), dec!(0.0)),
-            AccountBalance::with_amount(dec!(20.0), dec!(5.0)),
-            AccountBalance::with_amount(dec!(15.0), dec!(0.0)),
+            AccountBalance::with_amount(dec!(15.0), dec!(0.0))?,
+            AccountBalance::with_amount(dec!(10.0), dec!(0.0))?,
+            AccountBalance::with_amount(dec!(15.0), dec!(0.0))?,
+            AccountBalance::with_amount(dec!(15.0), dec!(5.0))?,
+            AccountBalance::with_amount(dec!(15.0), dec!(0.0))?,
+            AccountBalance::with_amount(dec!(20.0), dec!(0.0))?,
+            AccountBalance::with_amount(dec!(20.0), dec!(5.0))?,
+            AccountBalance::with_amount(dec!(15.0), dec!(0.0))?,
         ];
 
         let mut engine = Engine::new();
@@ -331,7 +331,7 @@ mod test {
         assert!(account.locked());
         assert_eq!(
             account.balance(),
-            &AccountBalance::with_amount(dec!(15.0), dec!(0.0))
+            &AccountBalance::with_amount(dec!(15.0), dec!(0.0))?
         );
 
         Ok(())
