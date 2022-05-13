@@ -8,13 +8,13 @@ The following was not clear from the task description, so I had to make assumpti
 - Only 'deposit' transactions can be reversed;
 - Negative balance is not allowed;
 
-### Error Handling
+### Error handling
 
-All the data storage containers, as well as the engine, provide detailed errors, so it's possible to tell what exactly went wrong during transaction processing.
+All of the data storage containers, as well as the engine, provide detailed errors. It's possible to tell what exactly went wrong during transaction processing.
 
-On the app level, the errors are printed to `stderr`, which shouldn't interfere with the automated testing and data serialization to `stdio`.
+On the application level the errors are printed to `stderr`, which shouldn't interfere with the automated testing and data output.
 
-### Test Coverage
+### Test coverage
 
 - All transaction types;
 - All transaction errors;
